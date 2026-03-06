@@ -9,6 +9,7 @@ import { teacherCourseData } from '../data/teacherCourse';
 import { getPreTestQuestions, getPostTestQuestions } from '../data/standardizedTests'; 
 import { getIcon } from '../utils/iconHelper';
 import SWOTBoard from '../components/activities/SWOTBoard';
+import InsightModuleLab from '../components/activities/InsightModuleLab';
 import { db } from '../lib/firebase';
 import { doc, getDoc, updateDoc, setDoc, arrayUnion } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
@@ -36,6 +37,7 @@ export default function CourseRoom() {
   const [quizAnswers, setQuizAnswers] = useState({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
   const [quizScore, setQuizScore] = useState(0);
+  const [activityReady, setActivityReady] = useState(false);
 
   const courseId = "course-teacher";
   const currentCourse = teacherCourseData || { modules: [] };
@@ -99,6 +101,11 @@ export default function CourseRoom() {
     }
   }, [currentLesson]);
 
+
+  useEffect(() => {
+    if (!currentLesson || currentLesson.type !== 'activity') return;
+    setActivityReady(currentLesson.activityType !== 'insight_lab');
+  }, [currentLesson]);
   // --- 3. Logic ---
   const handleLessonChange = (modIndex, lessIndex) => {
     if (modIndex > progressData.currentModuleIndex) {
@@ -183,7 +190,11 @@ export default function CourseRoom() {
 
         if (isPassed) {
             await markLessonComplete();
-            alert("🎉 ยินดีด้วย! คุณสอบผ่าน Post-test แล้ว");
+            if (currentLesson.id === 'm1-posttest') {
+              alert('🎉 ผ่าน Module 1 Post-test แล้ว! ไปสร้าง Report Card และรับ In-Sight Badge ได้เลย');
+            } else {
+              alert('🎉 ยินดีด้วย! คุณสอบผ่าน Post-test แล้ว');
+            }
         } else {
             if (newAttempts >= 5) {
                 alert("❌ คุณสอบไม่ผ่านครบ 5 ครั้ง ระบบจะทำการรีเซ็ตการเรียนรู้ใหม่ตั้งแต่ต้น");
@@ -260,9 +271,14 @@ export default function CourseRoom() {
   const renderActivity = () => (
     <div className="animate-fade-in-up">
         {currentLesson.activityType === 'swot_board' && <SWOTBoard />}
+        {currentLesson.activityType === 'insight_lab' && <InsightModuleLab onReadyChange={setActivityReady} />}
         <div className="mt-8 flex justify-end">
              {!progressData.completedLessons.includes(currentLesson.id) ? (
-                <button onClick={markLessonComplete} className="px-6 py-3 bg-primary text-white rounded-xl font-bold shadow-lg hover:bg-blue-700 transition flex items-center gap-2">
+                <button
+                  onClick={markLessonComplete}
+                  disabled={!activityReady}
+                  className="px-6 py-3 bg-primary text-white rounded-xl font-bold shadow-lg hover:bg-blue-700 transition flex items-center gap-2 disabled:opacity-50"
+                >
                     <PenTool size={20} /> ส่งภารกิจเรียบร้อย
                 </button>
              ) : (
@@ -290,11 +306,23 @@ export default function CourseRoom() {
         
         <div className="prose max-w-none text-gray-600 text-lg leading-relaxed mb-8">
             <p>{currentLesson.content?.text}</p>
+            {currentLesson.content?.imageUrl && (
+                <img src={currentLesson.content.imageUrl} alt={currentLesson.title} className="rounded-xl w-full max-h-72 object-cover my-4" />
+            )}
+            {Array.isArray(currentLesson.content?.links) && (
+                <ul className="space-y-2 my-4">
+                    {currentLesson.content.links.map((link) => (
+                        <li key={link.url}>
+                            <a href={link.url} target="_blank" rel="noreferrer" className="text-primary underline">{link.label}</a>
+                        </li>
+                    ))}
+                </ul>
+            )}
             {/* กรณีเป็นแบบสอบถาม (Mockup) */}
             {currentLesson.id === 'final-survey' && (
                 <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 text-center mt-4">
                     <p className="mb-4">กรุณาทำแบบประเมินความพึงพอใจเพื่อพัฒนาหลักสูตรต่อไป</p>
-                    <a href="#" className="inline-block px-6 py-2 bg-white border border-primary text-primary rounded-lg font-bold hover:bg-blue-50 transition">
+                    <a href={currentLesson.content?.surveyUrl || '#'} target="_blank" rel="noreferrer" className="inline-block px-6 py-2 bg-white border border-primary text-primary rounded-lg font-bold hover:bg-blue-50 transition">
                         เปิดแบบสอบถาม (Google Form)
                     </a>
                 </div>
@@ -395,6 +423,51 @@ export default function CourseRoom() {
   };
 
   // ✅ 4. ปรับปรุง Render Certificate (เพิ่มเงื่อนไข)
+
+  const renderModuleReport = () => {
+    const module1PostTestPassed = progressData.completedLessons.includes('m1-posttest');
+    const labDataRaw = localStorage.getItem('inspire-module1-lab');
+    const labData = labDataRaw ? JSON.parse(labDataRaw) : null;
+
+    if (!module1PostTestPassed) {
+      return (
+        <div className="animate-fade-in-up text-center py-20">
+          <Lock size={64} className="mx-auto text-gray-300 mb-6" />
+          <h2 className="text-2xl font-bold text-gray-700 mb-2">ยังไม่สามารถออก Report Card ได้</h2>
+          <p className="text-gray-500">กรุณาผ่าน Module 1 Post-test (อย่างน้อย 3/5 คะแนน) ก่อน</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-white p-8 rounded-3xl border border-amber-100 shadow-sm animate-fade-in-up">
+        <h2 className="text-2xl font-black text-amber-700 mb-2">Module 1 Report Card</h2>
+        <p className="text-gray-600 mb-6">สรุปผลการทำภารกิจทั้งหมด พร้อมรับ In-Sight Badge และปลดล็อก Module 2</p>
+        <div className="grid md:grid-cols-2 gap-4 text-sm">
+          <div className="bg-indigo-50 p-4 rounded-xl">
+            <p className="font-bold text-indigo-700 mb-2">Core Problem</p>
+            <p>{labData?.coreProblem || '-'}</p>
+          </div>
+          <div className="bg-emerald-50 p-4 rounded-xl">
+            <p className="font-bold text-emerald-700 mb-2">Real Need</p>
+            <p>{labData?.realNeed || '-'}</p>
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end">
+          {!progressData.completedLessons.includes(currentLesson.id) ? (
+            <button onClick={markLessonComplete} className="px-6 py-3 bg-amber-500 text-white rounded-xl font-bold shadow-lg hover:bg-amber-600 transition flex items-center gap-2">
+              <Award size={20} /> รับ In-Sight Badge และยืนยัน Report Card
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 text-green-600 font-bold bg-green-50 px-4 py-2 rounded-lg">
+              <CheckCircle size={20} /> ได้รับ In-Sight Badge แล้ว
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderCertificate = () => {
     // เงื่อนไข: ต้องผ่าน Post-test (posttest-exam) และทำ Survey (final-survey) แล้ว
     const isPostTestPassed = progressData.completedLessons.includes("posttest-exam");
@@ -441,6 +514,16 @@ export default function CourseRoom() {
             <p className="text-gray-500 mb-8 max-w-lg mx-auto">
                 คุณได้ผ่านการทดสอบและกิจกรรมครบถ้วนตามหลักสูตร InSPIRE for Teacher
             </p>
+            {Array.isArray(currentLesson.content?.requirements) && (
+                <ul className="text-left bg-yellow-50 border border-yellow-100 rounded-xl p-4 max-w-xl mx-auto mb-8 space-y-2">
+                    {currentLesson.content.requirements.map((requirement) => (
+                        <li key={requirement} className="text-sm text-yellow-900 flex items-start gap-2">
+                            <CheckCircle size={16} className="mt-0.5 text-yellow-600" />
+                            <span>{requirement}</span>
+                        </li>
+                    ))}
+                </ul>
+            )}
             <button className="px-8 py-4 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-2xl font-bold shadow-xl hover:shadow-2xl hover:-translate-y-1 transition flex items-center gap-2 mx-auto">
                 <FileText size={24} /> ดาวน์โหลดเกียรติบัตร (PDF)
             </button>
@@ -516,6 +599,7 @@ export default function CourseRoom() {
                 {currentLesson.type === 'activity' && renderActivity()}
                 {currentLesson.type === 'article' && renderArticle()} 
                 {currentLesson.type === 'certificate' && renderCertificate()}
+                {currentLesson.type === 'report' && renderModuleReport()}
             </div>
         </div>
       </main>
